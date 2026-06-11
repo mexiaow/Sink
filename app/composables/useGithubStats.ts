@@ -1,5 +1,10 @@
+import { useAppConfig, useFetch, useI18n } from '#imports'
+import { computed } from 'vue'
+import { formatNumber } from '@/utils/number'
+
 export function useGithubStats() {
   const { github } = useAppConfig()
+  const { locale } = useI18n()
   const repo = github.replace('https://github.com/', '')
 
   const { data, status } = useFetch(
@@ -13,14 +18,23 @@ export function useGithubStats() {
         stars: res.stargazers_count,
         forks: res.forks_count,
       }),
-      getCachedData: key => useNuxtApp().payload.data[key],
+      getCachedData: (key, nuxtApp) => nuxtApp.payload?.data?.[key] ?? nuxtApp.static?.data?.[key],
+      onResponseError: ({ response }) => {
+        // Silently handle GitHub API errors (rate limit, network issues, etc.)
+        console.warn(`[useGithubStats] GitHub API error: ${response.status}`)
+      },
     },
   )
 
-  const formattedStats = computed(() => ({
-    stars: data.value?.stars?.toLocaleString() ?? '6,000',
-    forks: data.value?.forks?.toLocaleString() ?? '4,000',
+  const rawStats = computed(() => ({
+    stars: data.value?.stars ?? 6000,
+    forks: data.value?.forks ?? 4000,
   }))
 
-  return { stats: formattedStats, status }
+  const formattedStats = computed(() => ({
+    stars: formatNumber(rawStats.value.stars, locale.value),
+    forks: formatNumber(rawStats.value.forks, locale.value),
+  }))
+
+  return { stats: formattedStats, rawStats, status }
 }

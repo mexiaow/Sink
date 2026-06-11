@@ -1,3 +1,4 @@
-export * from './events'
-export * from './link'
-export * from './metrics'
+export * from '#layers/dashboard/shared/types'
+export * from '#shared/types/link'
+export * from '#shared/types/link-check'
+export * from '#shared/types/traffic'
