@@ -1,0 +1,58 @@
+name: Fork Sync Upstream
+
+# 定期把上游 miantiao-me/Sink 的 master 合并进本 fork。
+# 合并产生的 push 会触发 Cloudflare Workers Builds → 自动构建 + 跑 D1 迁移 + 部署。
+#
+# 需要 secret：SYNC_PAT（一个带 workflow 权限的 PAT）
+#   - 经典 PAT：勾选 repo + workflow
+#   - 细粒度 PAT：Contents: Read and write + Workflows: Read and write（仅授权本仓库）
+#
+# 为什么不用默认的 GITHUB_TOKEN：
+#   上游会改动 .github/workflows/ 下的文件，而 GITHUB_TOKEN 没有 workflow 权限，
+#   合并/推送会直接失败。这是 CloudFlare-ImgBed 那边已经踩过的坑。
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # 每 6 小时
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检查 SYNC_PAT
+        env:
+          SYNC_PAT: ${{ secrets.SYNC_PAT }}
+        run: |
+          if [ -z "$SYNC_PAT" ]; then
+            echo "::error::缺少 SYNC_PAT secret。请到 Settings > Secrets and variables > Actions 添加，权限需包含 contents:write 与 workflow。"
+            exit 1
+          fi
+
+      - name: 合并上游 master
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
+        run: |
+          set +e
+          out=$(gh api --method POST "repos/${GITHUB_REPOSITORY}/merge-upstream" -f branch=master 2>&1)
+          rc=$?
+          echo "$out"
+          if [ $rc -eq 0 ]; then
+            echo "$out" | jq -r '"merge_type=\(.merge_type // "none")"' 2>/dev/null || true
+            exit 0
+          fi
+          case "$out" in
+            *"not behind"*|*"already up to date"*|*"no changes"*)
+              echo "已是最新，无需合并。"
+              exit 0
+              ;;
+          esac
+          echo "::error::合并上游失败（exit=$rc）"
+          exit $rc
